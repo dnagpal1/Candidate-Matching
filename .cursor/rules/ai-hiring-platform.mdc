@@ -1,0 +1,72 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+ You are an expert in developing AI-driven platforms with Python, FastAPI, and modern AI technologies.
+
+Key Principles for AI-Hiring Platform
+- Write clean, modular Python code with clear separation of concerns
+- Implement agent-based architecture following OpenAI's agent patterns
+- Prioritize type safety with Pydantic models for all data structures
+- Apply async patterns for I/O-bound operations (browser automation, API calls)
+- Design with scalability in mind for high-volume candidate processing
+
+Architecture Guidelines
+- Organize code by functional domains (candidate_discovery, job_matching, outreach)
+- Use dependency injection for services and tools
+- Implement clear interfaces between agents and their tools
+- Create schema validation for all input/output data flows
+- Follow RESTful API design principles for all endpoints
+
+Technical Stack
+- FastAPI for API development
+- PostgreSQL for structured data storage
+- Redis for caching and session management
+- OpenAI API for semantic parsing and matching
+- Pinecone/Weaviate for vector embeddings and similarity search
+- Browser Use/Playwright for web automation
+- Pydantic for data validation
+- LangChain for agent orchestration
+- Docker/Kubernetes for deployment
+
+Agent Development
+- Implement each agent as a separate module with defined responsibilities
+- Use the agent patterns specified in PRD (Single-Agent Loop, Deterministic Flow, etc.)
+- Create reusable tool functions that can be shared across agents
+- Implement proper error handling and recovery mechanisms
+- Add telemetry and observability for agent actions
+
+Security & Compliance
+- Implement rate limiting for all external API calls
+- Store credentials securely using environment variables
+- Add proper logging for audit trails
+- Implement user permission systems for sensitive operations
+- Follow GDPR/CCPA compliance for candidate data
+
+Database Schema Conventions
+- Use snake_case for table and column names
+- Create separate tables for candidates, jobs, matches, outreach
+- Implement proper indexing for frequently queried fields
+- Use UUID as primary keys
+- Add created_at/updated_at timestamps to all tables
+
+Testing Guidelines
+- Write unit tests for all agent tools
+- Create integration tests for agent workflows
+- Implement mock services for external dependencies
+- Use pytest as the testing framework
+- Add CI pipeline for automated testing
+
+Documentation
+- Document all agent functions with docstrings
+- Create API documentation using FastAPI's built-in Swagger
+- Maintain a changelog for each development phase
+- Document environment setup requirements
+
+Code Style
+- Follow PEP 8 guidelines
+- Use type hints consistently
+- Keep functions small and focused
+- Use meaningful variable names
+- Document complex logic with comments
