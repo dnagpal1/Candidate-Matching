@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import List, Optional
 
-from browser_use import BrowserUse
+from browser_use import Browser
 from playwright.async_api import Page
 
 from app.config.settings import settings
@@ -121,13 +121,13 @@ class CandidateDiscoveryAgent:
             await self._cleanup_browser()
     
     async def _initialize_browser(self) -> None:
-        """Initialize BrowserUse and set up the browser session."""
+        """Initialize Browser and set up the browser session."""
         if self.browser_use:
             # Already initialized
             return
         
         logger.info("Initializing browser session")
-        self.browser_use = BrowserUse()
+        self.browser_use = Browser()
         
         # Configure browser options
         await self.browser_use.create_browser(

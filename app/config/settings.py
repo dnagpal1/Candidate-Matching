@@ -1,6 +1,7 @@
 import os
 from functools import lru_cache
 from typing import List, Optional
+from urllib.parse import quote_plus
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,7 +22,11 @@ class Settings(BaseSettings):
     cors_origins: List[str] = Field(default=["*"])
     
     # Database
-    database_url: str
+    db_user: str
+    db_password: str
+    db_host: str
+    db_port: int = Field(default=5432)
+    db_name: str
     redis_url: str
     
     # OpenAI
@@ -43,6 +48,16 @@ class Settings(BaseSettings):
     browser_headless: bool = Field(default=False)
     browser_proxy_url: Optional[str] = Field(default=None)
     user_agent: str = Field(default="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
+    
+    @property
+    def database_url(self) -> str:
+        """
+        Construct PostgreSQL connection URL from components.
+        This properly handles special characters in the password.
+        """
+        # URL encode the password to handle special characters
+        encoded_password = quote_plus(self.db_password)
+        return f"postgresql://{self.db_user}:{encoded_password}@{self.db_host}:{self.db_port}/{self.db_name}"
     
     @field_validator("cors_origins", mode="before")
     @classmethod

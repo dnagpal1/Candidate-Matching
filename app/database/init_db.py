@@ -35,18 +35,30 @@ async def init_db() -> None:
         logger.error(f"Failed to initialize PostgreSQL: {e}", exc_info=True)
         raise
     
-    # Create Redis connection
+    # Create Redis connection with improved error handling
     try:
+        logger.info(f"Connecting to Redis at {settings.redis_url}")
         redis_client = redis.from_url(
             url=settings.redis_url,
             encoding="utf-8",
             decode_responses=True,
+            socket_timeout=10.0,  # 10 second timeout
+            socket_connect_timeout=10.0,
+            retry_on_timeout=True,
+            health_check_interval=30,
         )
+        # Test the connection
         await redis_client.ping()
         logger.info("Redis connection established successfully")
     except Exception as e:
         logger.error(f"Failed to initialize Redis: {e}", exc_info=True)
-        raise
+        # We'll continue without Redis in development mode
+        if settings.environment == "development":
+            logger.warning("Continuing without Redis in development mode")
+            redis_client = None
+        else:
+            # In production, we'll raise the exception
+            raise
 
 
 async def get_db_pool() -> Pool:
@@ -56,10 +68,11 @@ async def get_db_pool() -> Pool:
     return pg_pool
 
 
-async def get_redis_client() -> redis.Redis:
-    """Get the Redis client."""
-    if redis_client is None:
-        raise RuntimeError("Redis client not initialized")
+async def get_redis_client() -> Optional[redis.Redis]:
+    """
+    Get the Redis client.
+    May return None in development mode if Redis is unavailable.
+    """
     return redis_client
 
 

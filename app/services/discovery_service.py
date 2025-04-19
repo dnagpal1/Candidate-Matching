@@ -30,7 +30,7 @@ class DiscoveryService:
     def __init__(
         self,
         candidate_service: CandidateService = Depends(),
-        redis_client: Redis = Depends(get_redis_client),
+        redis_client: Optional[Redis] = Depends(get_redis_client),
     ):
         self.candidate_service = candidate_service
         self.redis_client = redis_client
@@ -70,21 +70,27 @@ class DiscoveryService:
         """
         task_id = str(uuid.uuid4())
         
-        # Store task info in Redis
-        await self.redis_client.hset(
-            f"task:{task_id}",
-            mapping={
-                "status": "pending",
-                "type": "linkedin_search",
-                "params": params.model_dump_json(),
-                "created_at": asyncio.get_event_loop().time(),
-                "total_found": "0",
-                "total_saved": "0",
-            },
-        )
-        
-        # Set TTL for task info (24 hours)
-        await self.redis_client.expire(f"task:{task_id}", 60 * 60 * 24)
+        # Store task info in Redis if available
+        if self.redis_client:
+            try:
+                await self.redis_client.hset(
+                    f"task:{task_id}",
+                    mapping={
+                        "status": "pending",
+                        "type": "linkedin_search",
+                        "params": params.model_dump_json(),
+                        "created_at": str(asyncio.get_event_loop().time()),
+                        "total_found": "0",
+                        "total_saved": "0",
+                    },
+                )
+                
+                # Set TTL for task info (24 hours)
+                await self.redis_client.expire(f"task:{task_id}", 60 * 60 * 24)
+            except Exception as e:
+                logger.warning(f"Failed to store task in Redis: {e}. Continuing anyway.")
+        else:
+            logger.info(f"Redis not available. Task {task_id} info stored in memory only.")
         
         # Start background task
         asyncio.create_task(self._run_background_search(task_id, params))
@@ -95,12 +101,26 @@ class DiscoveryService:
         """
         Get the status of a background task.
         """
-        task_info = await self.redis_client.hgetall(f"task:{task_id}")
-        
-        if not task_info:
-            return None
-        
-        return task_info
+        if not self.redis_client:
+            logger.info(f"Redis not available. Cannot retrieve status for task {task_id}")
+            return {
+                "status": "unknown",
+                "note": "Redis not available, cannot retrieve task status"
+            }
+            
+        try:
+            task_info = await self.redis_client.hgetall(f"task:{task_id}")
+            
+            if not task_info:
+                return None
+            
+            return task_info
+        except Exception as e:
+            logger.error(f"Error retrieving task status: {e}")
+            return {
+                "status": "error",
+                "error": str(e)
+            }
     
     async def _run_background_search(self, task_id: str, params: LinkedInSearchParams) -> None:
         """
@@ -108,7 +128,11 @@ class DiscoveryService:
         """
         try:
             # Update task status to running
-            await self.redis_client.hset(f"task:{task_id}", "status", "running")
+            if self.redis_client:
+                try:
+                    await self.redis_client.hset(f"task:{task_id}", "status", "running")
+                except Exception as e:
+                    logger.warning(f"Failed to update task status in Redis: {e}")
             
             # Use the candidate discovery agent to perform the search
             candidate_profiles = await self.discovery_agent.discover_candidates(
@@ -120,11 +144,15 @@ class DiscoveryService:
             )
             
             # Update total found
-            await self.redis_client.hset(
-                f"task:{task_id}", 
-                "total_found", 
-                str(len(candidate_profiles))
-            )
+            if self.redis_client:
+                try:
+                    await self.redis_client.hset(
+                        f"task:{task_id}", 
+                        "total_found", 
+                        str(len(candidate_profiles))
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update total_found in Redis: {e}")
             
             # Save candidates to database
             saved_count = 0
@@ -135,32 +163,44 @@ class DiscoveryService:
                     saved_count += 1
                     
                     # Update progress in Redis
-                    await self.redis_client.hset(
-                        f"task:{task_id}", 
-                        "total_saved", 
-                        str(saved_count)
-                    )
+                    if self.redis_client:
+                        try:
+                            await self.redis_client.hset(
+                                f"task:{task_id}", 
+                                "total_saved", 
+                                str(saved_count)
+                            )
+                        except Exception as e:
+                            logger.warning(f"Failed to update total_saved in Redis: {e}")
                 except Exception as e:
                     logger.error(f"Error saving candidate: {str(e)}", exc_info=True)
             
             # Update task status to completed
-            await self.redis_client.hset(
-                f"task:{task_id}",
-                mapping={
-                    "status": "completed",
-                    "completed_at": asyncio.get_event_loop().time(),
-                },
-            )
+            if self.redis_client:
+                try:
+                    await self.redis_client.hset(
+                        f"task:{task_id}",
+                        mapping={
+                            "status": "completed",
+                            "completed_at": str(asyncio.get_event_loop().time()),
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to update task status to completed in Redis: {e}")
         except Exception as e:
             # Update task status to failed
             error_message = str(e)
             logger.error(f"Background task failed: {error_message}", exc_info=True)
             
-            await self.redis_client.hset(
-                f"task:{task_id}",
-                mapping={
-                    "status": "failed",
-                    "error": error_message,
-                    "completed_at": asyncio.get_event_loop().time(),
-                },
-            ) 
+            if self.redis_client:
+                try:
+                    await self.redis_client.hset(
+                        f"task:{task_id}",
+                        mapping={
+                            "status": "failed",
+                            "error": error_message,
+                            "completed_at": str(asyncio.get_event_loop().time()),
+                        },
+                    )
+                except Exception as redis_e:
+                    logger.warning(f"Failed to update task status to failed in Redis: {redis_e}") 

@@ -8,7 +8,7 @@ from app.models.candidate import CandidateCreate
 @pytest.mark.asyncio
 async def test_discover_candidates():
     # Mock the browser use and tools
-    with patch("app.agents.candidate_discovery.agent.BrowserUse") as mock_browser_use, \
+    with patch("app.agents.candidate_discovery.agent.Browser") as mock_browser_use, \
          patch("app.agents.candidate_discovery.agent.search_linkedin_candidates") as mock_search, \
          patch("app.agents.candidate_discovery.agent.extract_candidate_profiles") as mock_extract, \
          patch("app.agents.candidate_discovery.agent.paginate_and_scroll") as mock_paginate, \

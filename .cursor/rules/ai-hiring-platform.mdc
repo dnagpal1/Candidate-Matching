@@ -1,9 +1,4 @@
----
-description: 
-globs: 
-alwaysApply: false
----
- You are an expert in developing AI-driven platforms with Python, FastAPI, and modern AI technologies.
+You are an expert in developing AI-driven platforms with Python, FastAPI, and modern AI technologies.
 
 Key Principles for AI-Hiring Platform
 - Write clean, modular Python code with clear separation of concerns
@@ -64,9 +59,16 @@ Documentation
 - Maintain a changelog for each development phase
 - Document environment setup requirements
 
+Phase 1 (MVP) Focus
+- Implement CandidateDiscoveryAgent with core tools
+- Create basic Pydantic models for candidate profiles
+- Set up minimal API endpoints for discovery operations
+- Implement browser automation safeguards
+- Add validation for scraped profiles
+
 Code Style
 - Follow PEP 8 guidelines
 - Use type hints consistently
 - Keep functions small and focused
 - Use meaningful variable names
-- Document complex logic with comments
+- Document complex logic with comments 
