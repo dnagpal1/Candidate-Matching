@@ -7,7 +7,6 @@ from fastapi import Depends
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 
-from app.agents.candidate_discovery.agent import CandidateDiscoveryAgent
 from app.database.init_db import get_redis_client
 from app.models.candidate import Candidate
 from app.services.candidate_service import CandidateService
@@ -34,7 +33,7 @@ class DiscoveryService:
     ):
         self.candidate_service = candidate_service
         self.redis_client = redis_client
-        self.discovery_agent = CandidateDiscoveryAgent()
+        # self.discovery_agent = CandidateDiscoveryAgent()
     
     async def search_linkedin(self, params: LinkedInSearchParams) -> List[Candidate]:
         """

@@ -2,150 +2,127 @@ import asyncio
 import logging
 from typing import List, Optional
 
-from browser_use import Browser
-from playwright.async_api import Page
+from agents import Agent, function_tool, RunContextWrapper, Runner
+from pydantic import BaseModel, Field
 
 from app.config.settings import settings
 from app.models.candidate import CandidateCreate
-from app.tools.linkedin import (extract_candidate_profiles, paginate_and_scroll,
-                              search_linkedin_candidates)
+from app.tools.linkedin import search_linkedin_candidates
 from app.utils.rate_limiter import RateLimiter
 
 logger = logging.getLogger(__name__)
 
+# -------------------------------
+# CONTEXT
+# -------------------------------
 
-class CandidateDiscoveryAgent:
+class CandidateDiscoveryContext(BaseModel):
+    job_title: str
+    location: str
+    company: Optional[str] = None
+    skills: Optional[List[str]] = None
+    max_profiles: int = Field(default=20, ge=1, le=100)
+    profiles_extracted: int = 0
+    discovered_candidates: List[CandidateCreate] = []
+
+# -------------------------------
+# RESPONSE SCHEMA
+# -------------------------------
+
+# Define a simplified schema that's compatible with OpenAI's response format requirements
+class CandidateOutput(BaseModel):
+    name: str
+    title: Optional[str] = None
+    location: Optional[str] = None
+    current_company: Optional[str] = None
+    skills: Optional[List[str]] = None
+    open_to_work: Optional[bool] = None
+    profile_url: Optional[str] = None
+
+class CandidateList(BaseModel):
+    candidates: List[CandidateOutput]
+
+# -------------------------------
+# TOOLS
+# -------------------------------
+
+@function_tool
+async def search_candidates_tool(context: RunContextWrapper[CandidateDiscoveryContext]) -> str:
     """
-    Agent responsible for discovering candidate profiles on LinkedIn.
-    Follows the Single-Agent Loop Pattern as specified in the PRD.
+    Search for candidates on LinkedIn based on the context parameters.
+    
+    Returns:
+        A message indicating the number of candidates found.
     """
+    # Use the existing search_linkedin_candidates function
+    candidates = await search_linkedin_candidates(
+        job_title=context.context.job_title,
+        location=context.context.location,
+        company=context.context.company,
+        skills=context.context.skills,
+        max_profiles=context.context.max_profiles
+    )
     
-    def __init__(self):
-        """Initialize the agent with configured tools."""
-        self.browser_use = None
-        self.rate_limiter = RateLimiter(
-            max_operations=settings.max_profiles_per_day,
-            operation_type="profile_extraction",
-        )
+    # Update context with the discovered candidates
+    context.context.discovered_candidates.extend(candidates)
+    context.context.profiles_extracted = len(candidates)
     
-    async def discover_candidates(
-        self,
-        job_title: str,
-        location: str,
-        company: Optional[str] = None,
-        skills: Optional[List[str]] = None,
-        max_profiles: int = 20,
-    ) -> List[CandidateCreate]:
-        """
-        Main agent loop for discovering candidates on LinkedIn.
-        
-        Args:
-            job_title: The job title to search for
-            location: The location to search in
-            company: Optional company name filter
-            skills: Optional list of skills to filter by
-            max_profiles: Maximum number of profiles to extract
-            
-        Returns:
-            List of CandidateCreate objects representing discovered candidates
-        """
-        logger.info(f"Starting candidate discovery for {job_title} in {location}")
-        
-        # Initialize browser session
-        try:
-            await self._initialize_browser()
-            page = self.browser_use.page
-            
-            # Apply search filters and navigate to results page
-            await search_linkedin_candidates(
-                page=page,
-                job_title=job_title,
-                location=location,
-                company=company,
+    return f"Found {len(candidates)} candidates matching your criteria."
+
+# -------------------------------
+# AGENT
+# -------------------------------
+
+candidate_discovery_agent = Agent[CandidateDiscoveryContext](
+    name="Candidate Discovery Agent",
+    handoff_description="An agent that discovers candidate profiles on LinkedIn.",
+    instructions="""
+    You are a candidate discovery agent. Use the search_candidates_tool to find candidates on LinkedIn
+    based on the job title, location, company, and skills provided in the context.
+    
+    After searching, return the number of candidates found and their basic information.
+    """,
+    tools=[search_candidates_tool],
+    output_type=CandidateList,
+)
+
+# -------------------------------
+# RUN
+# -------------------------------
+
+async def main():
+    """Example runner for the candidate discovery agent."""
+    context = CandidateDiscoveryContext(
+        job_title="Software Engineer",
+        location="San Francisco",
+        max_profiles=20
+    )
+    input_items = [{"role": "user", "content": "Find software engineers in San Francisco"}]
+    result = await Runner.run(candidate_discovery_agent, input_items, context=context)
+    
+    for item in result.new_items:
+        if hasattr(item, 'content'):
+            print(f"Agent: {item.content}")
+    
+    print(f"Discovered {len(context.discovered_candidates)} candidates.")
+    
+    # Convert CandidateCreate to CandidateOutput for the return value
+    output_candidates = []
+    for candidate in context.discovered_candidates:
+        output_candidates.append(
+            CandidateOutput(
+                name=candidate.name,
+                title=candidate.title,
+                location=candidate.location,
+                current_company=candidate.current_company,
+                skills=candidate.skills,
+                open_to_work=candidate.open_to_work,
+                profile_url=str(candidate.profile_url) if candidate.profile_url else None
             )
-            
-            # Extract candidate profiles
-            discovered_candidates = []
-            page_number = 1
-            profiles_extracted = 0
-            
-            # Loop through result pages until we reach max_profiles or run out of results
-            while profiles_extracted < max_profiles:
-                # Check rate limits before proceeding
-                await self.rate_limiter.check_rate_limit()
-                
-                logger.info(f"Processing page {page_number} of LinkedIn search results")
-                
-                # Extract profiles from current page
-                profiles_on_page = await extract_candidate_profiles(
-                    page=page,
-                    skills_to_match=skills,
-                )
-                
-                # Add new profiles to our results
-                for profile in profiles_on_page:
-                    if profiles_extracted >= max_profiles:
-                        break
-                    
-                    discovered_candidates.append(profile)
-                    profiles_extracted += 1
-                    
-                    # Log progress
-                    logger.debug(
-                        f"Extracted profile {profiles_extracted}/{max_profiles}: {profile.name}"
-                    )
-                    
-                    # Apply rate limiting delay between extractions
-                    await asyncio.sleep(settings.rate_limit_delay_seconds)
-                
-                # Break if we've reached max profiles
-                if profiles_extracted >= max_profiles:
-                    break
-                
-                # Try to paginate to next page
-                has_next_page = await paginate_and_scroll(page=page)
-                if not has_next_page:
-                    logger.info("No more results pages available")
-                    break
-                
-                page_number += 1
-            
-            logger.info(f"Candidate discovery complete. Found {len(discovered_candidates)} profiles")
-            return discovered_candidates
-            
-        except Exception as e:
-            logger.error(f"Error during candidate discovery: {str(e)}", exc_info=True)
-            raise
-        finally:
-            # Always ensure browser is closed
-            await self._cleanup_browser()
-    
-    async def _initialize_browser(self) -> None:
-        """Initialize Browser and set up the browser session."""
-        if self.browser_use:
-            # Already initialized
-            return
-        
-        logger.info("Initializing browser session")
-        self.browser_use = Browser()
-        
-        # Configure browser options
-        await self.browser_use.create_browser(
-            headless=settings.browser_headless,
-            proxy=settings.browser_proxy_url,
-            user_agent=settings.user_agent,
         )
-        
-        # Create a new page
-        await self.browser_use.create_page()
-        
-        # Handle LinkedIn login if required (login detection handled by the tools)
-        if settings.linkedin_email and settings.linkedin_password:
-            logger.info("LinkedIn credentials found, will attempt login if needed")
     
-    async def _cleanup_browser(self) -> None:
-        """Clean up browser resources."""
-        if self.browser_use:
-            logger.info("Closing browser session")
-            await self.browser_use.close_browser()
-            self.browser_use = None 
+    # Return the output as CandidateList
+    return CandidateList(candidates=output_candidates)
+
+if __name__ == "__main__":
+    asyncio.run(main())

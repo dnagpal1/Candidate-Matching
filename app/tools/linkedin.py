@@ -1,8 +1,10 @@
 import logging
 import re
 from typing import List, Optional
+import json
 
-from playwright.async_api import Page, TimeoutError
+from browser_use import Agent, Browser
+from langchain_openai import ChatOpenAI
 
 from app.config.settings import settings
 from app.models.candidate import CandidateCreate
@@ -15,244 +17,126 @@ LINKEDIN_SEARCH_URL = f"{LINKEDIN_URL}/search/results/people/"
 LOGIN_URL = f"{LINKEDIN_URL}/login"
 SEARCH_PAGE_SIZE = 10  # LinkedIn typically shows 10 results per page
 
-
+ 
 async def search_linkedin_candidates(
-    page: Page, 
-    job_title: str, 
+    job_title: str,
     location: str,
     company: Optional[str] = None,
-) -> None:
+    skills: Optional[List[str]] = None,
+    max_profiles: int = 20,
+) -> List[CandidateCreate]:
     """
-    Navigate to LinkedIn and search for candidates with the given criteria.
+    Search for candidates on LinkedIn with the given parameters.
+    This is a synchronous operation that will block until complete.
     
     Args:
-        page: Playwright page object
-        job_title: Job title to search for
-        location: Location to search in
+        job_title: The job title to search for
+        location: The location to search in
         company: Optional company name filter
+        skills: Optional list of skills to filter by
+        max_profiles: Maximum number of profiles to extract
+            
+    Returns:
+        List of CandidateCreate objects representing discovered candidates
     """
     logger.info(f"Searching LinkedIn for {job_title} in {location}")
     
-    # Navigate to LinkedIn
-    await page.goto(LINKEDIN_URL)
-    
-    # Check if login is required
-    if await _is_login_required(page):
-        await _perform_login(page)
-    
-    # Construct search URL with filters
-    search_url = LINKEDIN_SEARCH_URL
-    
-    # Add keyword (job title)
-    keywords = job_title.replace(" ", "%20")
-    search_url += f"?keywords={keywords}"
-    
-    # Add location filter
-    location_param = location.replace(" ", "%20")
-    search_url += f"&location={location_param}"
-    
-    # Add company filter if provided
-    if company:
-        company_param = company.replace(" ", "%20")
-        search_url += f"&currentCompany={company_param}"
-    
-    # Navigate to search results
-    logger.info(f"Navigating to search URL: {search_url}")
-    await page.goto(search_url)
-    
-    # Wait for search results to load
-    await page.wait_for_selector(".search-results-container", timeout=30000)
-    
-    # Small delay to ensure results are fully loaded
-    await page.wait_for_timeout(2000)
-    
-    logger.info("Search completed, results page loaded")
-
-
-async def extract_candidate_profiles(
-    page: Page, 
-    skills_to_match: Optional[List[str]] = None,
-) -> List[CandidateCreate]:
-    """
-    Extract candidate information from the current search results page.
-    
-    Args:
-        page: Playwright page object
-        skills_to_match: Optional list of skills to filter by
-        
-    Returns:
-        List of CandidateCreate objects
-    """
-    logger.info("Extracting candidate profiles from search results")
-    
-    # Wait for search results to be present
-    await page.wait_for_selector(".reusable-search__result-container", timeout=30000)
-    
-    # Get all profile cards on the page
-    profile_cards = await page.query_selector_all(".reusable-search__result-container")
-    
-    candidates = []
-    for card in profile_cards:
-        try:
-            # Extract basic information from the card
-            name_element = await card.query_selector(".entity-result__title-text a")
-            if not name_element:
-                continue
-                
-            # Extract name
-            name_text = await name_element.inner_text()
-            name = name_text.strip().split("\n")[0].strip()
-            
-            # Extract profile URL
-            profile_url = await name_element.get_attribute("href")
-            if profile_url:
-                # Clean up URL by removing query parameters
-                profile_url = profile_url.split("?")[0]
-            
-            # Extract title/headline
-            title_element = await card.query_selector(".entity-result__primary-subtitle")
-            title = await title_element.inner_text() if title_element else None
-            
-            # Extract location
-            location_element = await card.query_selector(".entity-result__secondary-subtitle")
-            location = await location_element.inner_text() if location_element else None
-            
-            # Extract current company (part of the title in most cases)
-            company = None
-            if title:
-                # Company is often in format "Title at Company"
-                title_parts = title.split(" at ", 1)
-                if len(title_parts) > 1:
-                    actual_title = title_parts[0].strip()
-                    company = title_parts[1].strip()
-                    title = actual_title
-            
-            # Check for "Open to work" badge
-            open_to_work = False
-            open_badge = await card.query_selector(".image-badge-recruiter-entity-lockup__badge")
-            if open_badge:
-                open_to_work = True
-            
-            # Extract or infer skills (from title and description)
-            skills = []
-            if skills_to_match:
-                # Simple skill matching from title and other text
-                card_text = await card.inner_text()
-                card_text = card_text.lower()
-                
-                for skill in skills_to_match:
-                    if skill.lower() in card_text:
-                        skills.append(skill)
-            
-            # Create candidate object
-            candidate = CandidateCreate(
-                name=name,
-                title=title,
-                location=location,
-                current_company=company,
-                skills=skills,
-                open_to_work=open_to_work,
-                profile_url=profile_url,
-            )
-            
-            candidates.append(candidate)
-            logger.debug(f"Extracted profile: {name}")
-            
-        except Exception as e:
-            logger.error(f"Error extracting profile: {e}", exc_info=True)
-    
-    logger.info(f"Extracted {len(candidates)} profiles from current page")
-    return candidates
-
-
-async def paginate_and_scroll(page: Page) -> bool:
-    """
-    Scroll through the current page and navigate to the next page of results if available.
-    
-    Args:
-        page: Playwright page object
-        
-    Returns:
-        Boolean indicating if there is a next page (True) or not (False)
-    """
-    # Scroll to the bottom of the page
-    await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-    await page.wait_for_timeout(1000)
-    
-    # Check if next button exists and is not disabled
-    next_button = await page.query_selector("button.artdeco-pagination__button--next")
-    if not next_button:
-        logger.info("No next button found, reached the last page")
-        return False
-    
-    # Check if the button is disabled
-    is_disabled = await next_button.get_attribute("disabled")
-    if is_disabled:
-        logger.info("Next button is disabled, reached the last page")
-        return False
-    
-    # Click next button
-    logger.info("Navigating to next page")
-    await next_button.click()
-    
-    # Wait for next page to load
     try:
-        await page.wait_for_load_state("networkidle", timeout=10000)
-        await page.wait_for_timeout(2000)  # Additional wait to ensure content is loaded
-        return True
-    except TimeoutError:
-        logger.warning("Timeout waiting for next page to load")
-        return False
-
-
-async def _is_login_required(page: Page) -> bool:
-    """
-    Check if the current page requires login.
-    
-    Args:
-        page: Playwright page object
+        # Configure browser options
+        browser_options = {}
+        if settings.browser_headless:
+            browser_options["headless"] = settings.browser_headless
+        if settings.browser_proxy_url:
+            browser_options["proxy"] = settings.browser_proxy_url
         
-    Returns:
-        Boolean indicating if login is required
-    """
-    # Check for login button or form
-    login_button = await page.query_selector("a[href*='/login']")
-    login_form = await page.query_selector("form#login-form")
+        # Build the agent's task
+        task = f"""
+        Navigate to LinkedIn and search for candidates based on the following parameters:
+        Job Title: {job_title}
+        Location: {location}
+        Company: {company if company else "Any company"}
+        Skills: {skills if skills else "Any skills"}
+        Maximum results: {max_profiles}
+        
+        Search using the "People" tab on LinkedIn and extract information from the first {max_profiles} results.
+        For each candidate you find, extract the following information:
+        - Name
+        - Title/Role
+        - Location
+        - Current company (if available)
+        - Whether they're "Open to Work" (if indicated)
+        - Profile URL
+        - Skills (from their profile or inferred from their title)
+        
+        For skills, try to match any of these if present: {skills if skills else ""}
+        
+        Return the results as a valid JSON array with each candidate having these fields:
+        - name (string)
+        - title (string)
+        - location (string)
+        - current_company (string or null)
+        - open_to_work (boolean)
+        - profile_url (string)
+        - skills (array of strings)
+        
+        Example output format:
+        [
+            {{
+                "name": "Jane Smith",
+                "title": "Software Engineer",
+                "location": "San Francisco, CA",
+                "current_company": "Google",
+                "open_to_work": false,
+                "profile_url": "https://www.linkedin.com/in/janesmith/",
+                "skills": ["Python", "JavaScript", "React"]
+            }},
+            // more candidates...
+        ]
+        """
+        
+        # Create and run the agent
+        browser = Browser(**browser_options)
+        agent = Agent(
+            task=task,
+            llm=ChatOpenAI(model=settings.openai_model),
+            browser=browser,
+        )
+        # Await the run method since it's a coroutine
+        result = await agent.run()
+        
+        # Parse the results to CandidateCreate objects
+        candidates = []
+        if result:
+            # Extract JSON array from the results - handle potential text before/after JSON
+            json_text = result
+            # Try to extract JSON if there's additional text
+            matches = re.search(r'\[\s*\{.*\}\s*\]', json_text, re.DOTALL)
+            if matches:
+                json_text = matches.group(0)
+            
+            try:
+                candidate_data = json.loads(json_text)
+                for data in candidate_data:
+                    # Convert to CandidateCreate model
+                    candidate = CandidateCreate(
+                        name=data.get("name", "Unknown"),
+                        title=data.get("title"),
+                        location=data.get("location"),
+                        current_company=data.get("current_company"),
+                        open_to_work=data.get("open_to_work", False),
+                        profile_url=data.get("profile_url"),
+                        skills=data.get("skills", [])
+                    )
+                    candidates.append(candidate)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse candidate data: {e}")
+                logger.error(f"Raw result: {result}")
+        
+        logger.info(f"Found {len(candidates)} candidates on LinkedIn")
+        return candidates
+    except Exception as e:
+        logger.error(f"Error searching LinkedIn: {e}")
+        raise e
     
-    return bool(login_button or login_form)
 
-
-async def _perform_login(page: Page) -> None:
-    """
-    Perform LinkedIn login with credentials from settings.
     
-    Args:
-        page: Playwright page object
-    """
-    logger.info("Login required, attempting to log in to LinkedIn")
-    
-    # Navigate to login page if not already there
-    current_url = page.url
-    if LOGIN_URL not in current_url:
-        await page.goto(LOGIN_URL)
-    
-    # Fill in login form
-    await page.fill("input#username", settings.linkedin_email)
-    await page.fill("input#password", settings.linkedin_password)
-    
-    # Submit form
-    await page.click("button[type='submit']")
-    
-    # Wait for navigation to complete
-    await page.wait_for_load_state("networkidle")
-    
-    # Check if login was successful
-    if "feed" in page.url or "voyager" in page.url:
-        logger.info("LinkedIn login successful")
-    else:
-        logger.error("LinkedIn login failed, check credentials")
-        # Check for specific error messages
-        error_msg = await page.inner_text(".alert-content")
-        if error_msg:
-            logger.error(f"Login error: {error_msg}")
-        raise Exception("LinkedIn login failed") 

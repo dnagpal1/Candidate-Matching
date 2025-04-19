@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     
     # OpenAI
     openai_api_key: str
-    
+    openai_model: str = Field(default="gpt-4o")
     # LinkedIn credentials
     linkedin_email: str
     linkedin_password: str
