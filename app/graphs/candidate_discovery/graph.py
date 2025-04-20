@@ -1,12 +1,10 @@
 import logging
-from typing import Annotated, List, Optional
+from typing import List, Optional
 
 from langgraph.graph import StateGraph, START, END
-from IPython.display import display, Image
 
 from app.graphs.candidate_discovery.schema import (
     DiscoveryState,
-    NextAction,
     SearchParameters,
     CandidateProfile,
 )
@@ -26,7 +24,7 @@ def create_discovery_graph():
     """
     # Create the graph
     graph = StateGraph(DiscoveryState)
-
+    
     # Add nodes to the graph
     graph.add_node("linkedin_search", search_linkedin_candidates)
     
@@ -35,7 +33,6 @@ def create_discovery_graph():
     graph.add_edge("linkedin_search", END)
 
     graph.set_entry_point("linkedin_search")
-
     
     # Compile the graph
     compiled_graph = graph.compile()

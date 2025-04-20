@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str
     openai_model: str = Field(default="gpt-4o")
+    anthropic_api_key: str
+    anthropic_model: str = Field(default="claude-3-5-sonnet-20240620")
+    gemini_api_key: str
+    gemini_model: str = Field(default="gemini-2.5-pro-preview-03-25")
     # LinkedIn credentials
     linkedin_email: str
     linkedin_password: str
