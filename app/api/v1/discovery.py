@@ -1,18 +1,13 @@
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-
-from app.models.candidate import Candidate
-from app.services.discovery_service import DiscoveryService, LinkedInSearchParams
-from app.agents.candidate_discovery.agent import (
-    candidate_discovery_agent, 
-    CandidateDiscoveryContext, 
-    CandidateList,
-    CandidateOutput
-)
-from agents import Runner
 import uuid
 import logging
+
+from app.models.candidate import Candidate, CandidateCreate
+from app.services.discovery_service import DiscoveryService
+from app.graphs.candidate_discovery.graph import run_discovery_graph
+from app.graphs.candidate_discovery.schema import SearchParameters
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,53 +30,55 @@ async def search_linkedin(
     
     Can be run as a background task for larger searches.
     """
-    # Create the context for the agent
-    context = CandidateDiscoveryContext(
-        job_title=title,
-        location=location,
-        company=company,
-        skills=skills,
-        max_profiles=max_results
-    )
-    
     # Create a unique ID for this search task
     task_id = f"search_{uuid.uuid4().hex[:8]}"
     
-    async def run_agent():
-        logger.info(f"Running candidate discovery agent for task {task_id}")
-        # Create the user input for the agent
-        input_items = [{"role": "user", "content": f"Find {title} professionals in {location}"}]
-        
+    # Define the search function
+    async def run_search():
+        logger.info(f"Running candidate discovery for task {task_id}")
         try:
-            # Run the agent
-            result = await Runner.run(candidate_discovery_agent, input_items, context=context)
+            # Run the discovery graph
+            candidates = await run_discovery_graph(
+                job_title=title,
+                location=location,
+                company=company,
+                skills=skills,
+                max_results=max_results,
+            )
             
-            # Log the agent's responses
-            for item in result.new_items:
-                if hasattr(item, 'content'):
-                    logger.info(f"Agent output: {item.content}")
+            # Convert to CandidateCreate for database storage
+            candidate_creates = []
+            for candidate in candidates:
+                candidate_creates.append(
+                    CandidateCreate(
+                        name=candidate.name,
+                        title=candidate.title,
+                        location=candidate.location,
+                        current_company=candidate.current_company,
+                        skills=candidate.skills,
+                        open_to_work=candidate.open_to_work,
+                        profile_url=candidate.profile_url,
+                    )
+                )
             
-            # Get the discovered candidates from the context
-            logger.info(f"Agent discovered {len(context.discovered_candidates)} candidates")
+            # Save candidates to the database
+            if candidate_creates:
+                await discovery_service.save_candidates(candidate_creates)
             
-            # Save candidates to the database if required
-            if len(context.discovered_candidates) > 0:
-                await discovery_service.save_candidates(context.discovered_candidates)
-                
-            return context.discovered_candidates
+            logger.info(f"Task {task_id} complete: Found {len(candidate_creates)} candidates")
+            return candidate_creates
         except Exception as e:
-            logger.error(f"Error running agent: {str(e)}", exc_info=True)
+            logger.error(f"Error in task {task_id}: {str(e)}", exc_info=True)
             raise
     
+    # Run in background if requested
     if run_in_background:
-        # Run the task in the background
-        background_tasks.add_task(run_agent)
-        # Return an empty list immediately
+        background_tasks.add_task(run_search)
         return []
     
+    # Run synchronously
     try:
-        # Run the agent synchronously
-        return await run_agent()
+        return await run_search()
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -103,4 +100,4 @@ async def get_search_status(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Task not found",
         )
-    return status_info 
+    return status_info
