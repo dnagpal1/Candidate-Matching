@@ -7,8 +7,10 @@ from app.graphs.candidate_discovery.schema import (
     DiscoveryState,
     SearchParameters,
     CandidateProfile,
+    UserQuery,
 )
 from app.graphs.candidate_discovery.nodes import (
+    parse_intent_node,
     search_linkedin_candidates,
 )
 
@@ -26,13 +28,15 @@ def create_discovery_graph():
     graph = StateGraph(DiscoveryState)
     
     # Add nodes to the graph
+    graph.add_node("parse_intent", parse_intent_node)
     graph.add_node("linkedin_search", search_linkedin_candidates)
     
     # Add edges to the graph
-    graph.add_edge(START, "linkedin_search")
+    graph.add_edge(START, "parse_intent")
+    graph.add_edge("parse_intent", "linkedin_search")
     graph.add_edge("linkedin_search", END)
 
-    graph.set_entry_point("linkedin_search")
+    graph.set_entry_point("parse_intent")
     
     # Compile the graph
     compiled_graph = graph.compile()
@@ -41,38 +45,20 @@ def create_discovery_graph():
 
 
 async def run_discovery_graph(
-    job_title: str,
-    location: str,
-    company: Optional[str] = None,
-    skills: Optional[List[str]] = None,
-    max_results: int = 20,
+    query: str,
 ) -> List[CandidateProfile]:
     """
     Run the candidate discovery graph.
     
     Parameters:
-        job_title: Job title to search for
-        location: Location to search in
-        company: Optional company name filter
-        skills: Optional list of skills to filter by
-        max_results: Maximum number of results to return
+        query: The query to search for
         
     Returns:
         List of discovered candidate profiles
     """
-    logger.info(f"Starting candidate discovery for {job_title} in {location}")
-    
-    # Create search parameters
-    search_params = SearchParameters(
-        job_title=job_title,
-        location=location,
-        company=company,
-        skills=skills,
-        max_results=max_results,
-    )
-    
-    # Create initial state
-    initial_state = DiscoveryState(search_params=search_params)
+    logger.info(f"Starting candidate discovery for {query}")
+    # Create the user query
+    initial_state = DiscoveryState(query_string=query)
     
     # Create the graph
     graph = create_discovery_graph()

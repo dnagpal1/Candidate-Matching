@@ -4,9 +4,7 @@ import re
 from typing import Dict, List, Optional, Tuple
 import asyncio
 from browser_use import Agent, Browser, Controller
-from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
 
 from app.config.settings import settings
 from app.graphs.candidate_discovery.schema import (
@@ -14,6 +12,7 @@ from app.graphs.candidate_discovery.schema import (
     ProfileData,
     CandidateProfile,
     Profiles,
+    SearchParameters,
 )
 
 
@@ -160,3 +159,39 @@ async def search_linkedin_candidates(
     except Exception as e:
         logger.error(f"Error searching LinkedIn: {e}")
         raise e
+
+
+
+async def parse_intent_node(state: DiscoveryState) -> DiscoveryState:
+    """
+    Parse the intent of the user's query into a SearchParameters object.
+    """
+    logger.info(f"Parsing intent of user's query: {state.query_string}")
+    
+    # Create a prompt for intent parsing
+    prompt = f"""
+    You are a helpful assistant that parses the intent of a user's query.
+    Convert the user's query into structured search parameters for a LinkedIn candidate search.
+    
+    The user's query is: {state.query_string}
+    
+    Your task is to extract and return the following information as JSON, ensuring each field is grounded in real and valid LinkedIn-compatible data:
+
+    - **job_title**: The main role being searched for (e.g., "Software Engineer", "Product Manager").
+    - **location**: A real geographic location where the candidate is expected to be located or open to work. This should match actual LinkedIn city or region names (e.g., "Toronto", "San Francisco Bay Area").
+    - **company**: (Optional) If the user specifies a company preference, include the company name (e.g., "Google").
+    - **skills**: A list of relevant, real-world skills (e.g., ["Python", "Django", "AWS"]). These should be technical or professional skills, not soft traits.
+    - **experience_level**: Use one of the following: "Internship", "Entry Level", "Associate", "Mid-Senior", "Director", or "Executive".
+    - **max_results**: A number between 1 and 100 indicating how many profiles to extract (default to 20 if not specified).
+
+    Make sure all values are realistic and coherent with each other. If any value is missing or unclear, set it to `null` or an empty list.
+    """
+
+    # Create and run the node
+    llm = ChatGoogleGenerativeAI(model=settings.gemini_model, api_key=settings.gemini_api_key)
+    structured_llm = llm.with_structured_output(SearchParameters)
+    response = await structured_llm.ainvoke(prompt)
+
+    logger.info(f"Parsed search parameters: {response}")
+
+    return {"search_params": response}

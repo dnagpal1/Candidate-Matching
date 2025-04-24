@@ -16,11 +16,7 @@ router = APIRouter()
 @router.post("/linkedin/search", response_model=List[Candidate])
 async def search_linkedin(
     background_tasks: BackgroundTasks,
-    title: str = Query(..., description="Job title to search for"),
-    location: str = Query(..., description="Location to search in"),
-    company: Optional[str] = Query(None, description="Company name filter"),
-    skills: Optional[List[str]] = Query(None, description="Skills to filter by"),
-    max_results: int = Query(20, ge=1, le=100, description="Maximum number of results to return"),
+    query: str = Query(..., description="The query to search for"),
     run_in_background: bool = Query(False, description="Run search as a background task"),
     discovery_service: DiscoveryService = Depends(),
 ):
@@ -39,11 +35,7 @@ async def search_linkedin(
         try:
             # Run the discovery graph
             candidates = await run_discovery_graph(
-                job_title=title,
-                location=location,
-                company=company,
-                skills=skills,
-                max_results=max_results,
+                query=query,
             )
             
             # Convert to CandidateCreate for database storage

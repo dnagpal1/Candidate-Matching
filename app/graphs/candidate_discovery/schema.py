@@ -6,11 +6,15 @@ from datetime import datetime
 
 class SearchParameters(BaseModel):
     """Parameters for searching candidates on LinkedIn."""
-    job_title: str
-    location: str
-    company: Optional[str] = None
-    skills: Optional[List[str]] = None
-    max_results: int = Field(default=20, ge=1, le=100)
+    job_title: str = Field(..., description="The job title to search for")
+    location: str = Field(..., description="The location to search in")
+    company: Optional[str] = Field(None, description="The company to search in")
+    skills: Optional[List[str]] = Field(None, description="The skills to search for")
+    max_results: int = Field(default=20, ge=1, le=100, description="The maximum number of results to return")
+
+class UserQuery(BaseModel):
+    """The user's query."""
+    query: str = Field(..., description="The query to search for")
 
 
 class ProfileData(BaseModel):
@@ -49,8 +53,12 @@ class CandidateProfile(BaseModel):
 
 class DiscoveryState(BaseModel):
     """State maintained for LinkedIn candidate discovery."""
-    # Input parameters
-    search_params: SearchParameters
+
+    # User query
+    query_string: Optional[str] = None
+    
+    # Search parameters
+    search_params: Optional[SearchParameters] = None
     
     # Output data
     raw_profiles: Profiles = Field(default_factory=Profiles)

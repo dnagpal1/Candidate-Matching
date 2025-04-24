@@ -273,3 +273,126 @@ To create an intelligent, automated matchmaking system that:
 
 This PRD provides a clear roadmap and detailed guide for successfully developing your AI-driven hiring platform, informed by best practices from OpenAI's guidelines on building agents and the agent patterns provided in the [OpenAI Agents SDK repository](https://github.com/openai/openai-agents-python/tree/main/examples/agent_patterns).
 
+
+
+# Product Requirements Document (PRD)
+
+## 📌 Overview
+The AI-driven Hiring Platform automates and optimizes candidate and job matching by leveraging LangGraph-powered AI agents, semantic extraction, and browser automation tools. The platform streamlines hiring by eliminating manual search tasks, significantly enhancing efficiency and accuracy for recruiters and job seekers.
+
+## 🎯 Product Vision
+To create an intelligent, autonomous hiring workflow that:
+- Automates candidate and job discovery.
+- Utilizes semantic understanding and agent memory.
+- Matches candidates with roles using explainable, real-time LLM decisioning.
+- Continuously improves with feedback and observability.
+
+---
+
+## 🧠 Why LangGraph + Agentic Pattern Selection
+LangGraph introduces a powerful agentic architecture using stateful, multi-step agents and node-to-node transitions. This is better suited than linear pipelines or simple tool agents for our use case.
+
+### Patterns Considered
+1. **Chain of Tools (linear)** — good for deterministic flows but lacks context reuse or error recovery.
+2. **ReAct Loop** — ideal for explorative tasks and real-time reasoning.
+3. **Multi-Agent Systems** — powerful but lacks central context/memory retention per agent.
+4. **LangGraph DAG + Memory Pattern (Selected)** ✅
+
+### ✅ Why LangGraph DAG + Memory Pattern
+- Enables graph-based workflows for phase transitions (e.g., candidate → match → outreach).
+- Built-in support for memory (each recruiter’s preferences or candidate history).
+- Natural support for guardrails, retries, and conditional logic.
+- Each node can be an agent, tool, or evaluator (perfect for modular, extensible design).
+
+---
+
+## 🗓️ Refactored Development Phases Using LangGraph
+
+### Phase 1: Candidate Discovery Graph (Real-Time Intent-Driven)
+- **LangGraph Pattern**: DAG + ReAct Loop inside scraping node
+- **Human Query Input**: "Find backend engineers in Toronto with Go experience who prefer startups"
+- **Graph Nodes**:
+  - `ParseIntentNode` → Uses LLM to convert natural query into structured `SearchParameters`
+  - `LinkedInPreFilterNode` → Constructs search URL and filters (keywords, location)
+  - `GatherProfileLinksNode` → Uses browser to extract 10–15 profile links across pages
+  - `ProfileScoringReActNode` → Loops through summary data and reasons which profiles to deep scrape
+  - `ProfileExtractorNode` → Scrapes detailed profile for shortlisted candidates
+  - `GuardrailValidatorNode` → Ensures schema and relevance validity
+- **Memory**: Stores recruiter query, filter context, top-scoring links
+
+### Phase 2: Job Discovery & Semantic Extraction Graph
+- **LangGraph Pattern**: Fork-Join Graph
+- **Graph Nodes**:
+  - `JobScraperNode` → Gathers job listings
+  - `DescriptionFormatterNode` → Prepares text
+  - `GPTStructurerNode` → Converts to structured JSON
+  - `JoinNode` → Passes all job postings to next stage
+- **Memory**: Cache industry/job type embeddings
+
+### Phase 3: Matching Engine Graph
+- **LangGraph Pattern**: Chain + ReAct Judgment Node
+- **Graph Nodes**:
+  - `CandidateEmbedderNode`
+  - `JobEmbedderNode`
+  - `SimilarityMatchNode`
+  - `GPTScorerNode` (Judge with rationale)
+- **Memory**: Matching history, scores, recruiter intent vectors
+
+### Phase 4: Outreach & Interaction Graph
+- **LangGraph Pattern**: Router Node + Parallel Send
+- **Graph Nodes**:
+  - `MessageComposerNode`
+  - `ComplianceFilterNode`
+  - `MessageSenderNode`
+  - `TrackResponseNode`
+- **Memory**: Outreach status, timing, engagement history
+
+### Phase 5: Compliance, Monitoring & Routing Graph
+- **LangGraph Pattern**: Handoff & Router
+- **Graph Nodes**:
+  - `TriageRouterNode`
+  - `ComplianceAgentNode`
+  - `SystemMonitorNode`
+  - `RecoveryEscalationNode`
+- **Memory**: Incident history, compliance flags, error traces
+
+---
+
+## ⚙️ Technical Architecture
+
+### Backend
+- Python + LangGraph + ReAct agents
+- FastAPI, Redis, PostgreSQL
+- Pinecone for vector DB
+- `browser-use` for real-time scraping (modular tool wrappers)
+
+### Frontend
+- Next.js + Tailwind + ShadCN for UI
+- Recruiter-facing dashboard
+
+### Tools/Patterns Used
+- **ReAct Loop**: for profile pre-screening (phase 1) and matching (phase 3)
+- **Agents as Tools**: LinkedIn scraping and scoring agents
+- **Memory**: Stored in LangGraph runtime context + Redis cache (for reuse across executions)
+- **Guardrails**: Validate input schema, skip malformed pages
+
+---
+
+## 🛡 Guardrails
+- Input schema validation from parsed user intent
+- Skipping profiles with null fields
+- Max scroll/page-depth controls for LinkedIn usage limits
+- Bot-detection recovery (e.g., timeout, fallback URL)
+
+---
+
+## 📊 Success Metrics
+- Candidate discovery to outreach time < 3 minutes
+- Match acceptance rate > 40%
+- Personalized agent accuracy improvement with each feedback cycle
+- Recruiter retention & NPS scores
+
+---
+
+This updated PRD integrates real-time scraping and reasoning via ReAct, LangGraph memory, and `browser-use`. Each phase is now adaptive to human intent, modular in execution, and efficient in resource use — enabling a truly autonomous hiring workflow.
+
