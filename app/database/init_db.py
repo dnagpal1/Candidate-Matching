@@ -97,6 +97,14 @@ async def _create_tables() -> None:
         return
     
     async with pg_pool.acquire() as conn:
+        # Check if source column exists in candidates table
+        column_exists = await conn.fetchval("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.columns 
+                WHERE table_name = 'candidates' AND column_name = 'source'
+            )
+        """)
+        
         # Create candidates table
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS candidates (
@@ -108,10 +116,22 @@ async def _create_tables() -> None:
                 skills TEXT[],
                 open_to_work BOOLEAN DEFAULT FALSE,
                 profile_url TEXT UNIQUE,
+                source TEXT DEFAULT 'linkedin',
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             )
         """)
+        
+        # Add source column if it doesn't exist
+        if not column_exists:
+            try:
+                await conn.execute("""
+                    ALTER TABLE candidates 
+                    ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'linkedin'
+                """)
+                logger.info("Added source column to candidates table")
+            except Exception as e:
+                logger.error(f"Failed to add source column: {e}")
         
         # Create rate limiting table
         await conn.execute("""

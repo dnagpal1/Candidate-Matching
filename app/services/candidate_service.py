@@ -30,8 +30,8 @@ class CandidateService:
             row = await conn.fetchrow("""
                 INSERT INTO candidates (
                     id, name, title, location, current_company, 
-                    skills, open_to_work, profile_url, created_at, updated_at
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    skills, open_to_work, profile_url, source, created_at, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 RETURNING *
             """, 
                 candidate_id,
@@ -42,6 +42,7 @@ class CandidateService:
                 candidate.skills,
                 candidate.open_to_work,
                 str(candidate.profile_url) if candidate.profile_url else None,
+                candidate.source,
                 now,
                 now,
             )
@@ -168,6 +169,11 @@ class CandidateService:
             conditions.append(f"open_to_work = ${param_idx}")
             query_params.append(params.is_open_to_work)
             param_idx += 1
+            
+        if params.source:
+            conditions.append(f"source = ${param_idx}")
+            query_params.append(params.source)
+            param_idx += 1
         
         # Build where clause
         where_clause = " AND ".join(conditions)
@@ -202,6 +208,7 @@ class CandidateService:
             skills=record["skills"] if record["skills"] else [],
             open_to_work=record["open_to_work"],
             profile_url=record["profile_url"],
+            source=record.get("source", "linkedin"),  # Default to LinkedIn if not present
             created_at=record["created_at"],
             updated_at=record["updated_at"],
         ) 

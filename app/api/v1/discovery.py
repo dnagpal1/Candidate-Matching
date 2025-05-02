@@ -6,23 +6,29 @@ import logging
 
 from app.models.candidate import Candidate, CandidateCreate
 from app.services.discovery_service import DiscoveryService
-from app.graphs.candidate_discovery.graph import run_discovery_graph
-from app.graphs.candidate_discovery.schema import SearchParameters
+from app.graphs.candidate_discovery import run_discovery_graph
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/linkedin/search", response_model=List[Candidate])
-async def search_linkedin(
+@router.post("/search", response_model=List[Candidate])
+async def search_candidates(
     background_tasks: BackgroundTasks,
-    query: str = Query(..., description="The query to search for"),
+    query: str = Query(..., description="The query to search for (e.g., 'Software Engineer in San Francisco with React skills')"),
+    min_profiles: int = Query(5, description="Minimum number of profiles to find before stopping"),
     run_in_background: bool = Query(False, description="Run search as a background task"),
     discovery_service: DiscoveryService = Depends(),
 ):
     """
-    Search for candidates on LinkedIn with the specified criteria.
+    Search for candidates across multiple platforms (LinkedIn, Wellfound, GitHub) with the specified criteria.
     Results are automatically saved to the database.
+    
+    This uses a ReAct-style agent that:
+    1. Parses the intent of your query
+    2. Plans which websites to search
+    3. Searches each website in sequence 
+    4. Validates profiles and decides if more searching is needed
     
     Can be run as a background task for larger searches.
     """
@@ -36,6 +42,7 @@ async def search_linkedin(
             # Run the discovery graph
             candidates = await run_discovery_graph(
                 query=query,
+                min_required_profiles=min_profiles,
             )
             
             # Convert to CandidateCreate for database storage
@@ -50,6 +57,7 @@ async def search_linkedin(
                         skills=candidate.skills,
                         open_to_work=candidate.open_to_work,
                         profile_url=candidate.profile_url,
+                        source=candidate.source,
                     )
                 )
             
@@ -74,7 +82,7 @@ async def search_linkedin(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error during LinkedIn search: {str(e)}",
+            detail=f"Error during candidate search: {str(e)}",
         )
 
 

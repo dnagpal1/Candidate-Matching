@@ -11,10 +11,22 @@ from app.graphs.candidate_discovery.schema import (
 )
 from app.graphs.candidate_discovery.nodes import (
     parse_intent_node,
-    search_linkedin_candidates,
+    plan_actions_node,
+    search_candidates_parallel_node,
+    validate_profiles_node,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def should_continue_searching(state: DiscoveryState) -> str:
+    """
+    Conditional routing function to determine if we should search more websites.
+    Returns the name of the next node to route to.
+    """
+    if state.should_search_more:
+        return "search_candidates"
+    return "end"
 
 
 def create_discovery_graph():
@@ -29,12 +41,25 @@ def create_discovery_graph():
     
     # Add nodes to the graph
     graph.add_node("parse_intent", parse_intent_node)
-    graph.add_node("linkedin_search", search_linkedin_candidates)
+    graph.add_node("plan_actions", plan_actions_node)
+    graph.add_node("search_candidates", search_candidates_parallel_node)
+    graph.add_node("validate_profiles", validate_profiles_node)
     
     # Add edges to the graph
     graph.add_edge(START, "parse_intent")
-    graph.add_edge("parse_intent", "linkedin_search")
-    graph.add_edge("linkedin_search", END)
+    graph.add_edge("parse_intent", "plan_actions")
+    graph.add_edge("plan_actions", "search_candidates")
+    graph.add_edge("search_candidates", "validate_profiles")
+    
+    # Add conditional edges for looping
+    graph.add_conditional_edges(
+        "validate_profiles",
+        should_continue_searching,
+        {
+            "search_candidates": "search_candidates",
+            "end": END
+        }
+    )
 
     graph.set_entry_point("parse_intent")
     
@@ -46,19 +71,24 @@ def create_discovery_graph():
 
 async def run_discovery_graph(
     query: str,
+    min_required_profiles: int = 5,
 ) -> List[CandidateProfile]:
     """
     Run the candidate discovery graph.
     
     Parameters:
         query: The query to search for
+        min_required_profiles: Minimum number of profiles to find before stopping
         
     Returns:
         List of discovered candidate profiles
     """
     logger.info(f"Starting candidate discovery for {query}")
-    # Create the user query
-    initial_state = DiscoveryState(query_string=query)
+    # Create the initial state
+    initial_state = DiscoveryState(
+        query_string=query,
+        min_required_profiles=min_required_profiles,
+    )
     
     # Create the graph
     graph = create_discovery_graph()

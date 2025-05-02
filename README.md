@@ -40,13 +40,14 @@ This application is being developed in phases as outlined in the Product Require
 # Product Requirements Document (PRD)
 
 ## 📌 Overview
-The AI-driven Hiring Platform automates and optimizes candidate and job matching by leveraging AI agents, semantic extraction, and browser automation tools. The platform streamlines hiring by eliminating manual search tasks, significantly enhancing efficiency and accuracy for recruiters and job seekers.
+The AI-driven Hiring Platform automates and optimizes candidate and job matching by leveraging LangGraph-powered AI agents, semantic extraction, and browser automation tools. The platform streamlines hiring by eliminating manual search tasks, significantly enhancing efficiency and accuracy for recruiters and job seekers.
 
 ## 🎯 Product Vision
-To create an intelligent, automated matchmaking system that:
-- Automates data extraction from LinkedIn.
-- Utilizes semantic understanding and machine learning for matching.
-- Reduces recruitment time and increases match quality.
+To create an intelligent, autonomous hiring workflow that:
+- Automates candidate and job discovery.
+- Utilizes semantic understanding and agent memory.
+- Matches candidates with roles using explainable, real-time LLM decisioning.
+- Continuously improves with feedback and observability.
 
 ## 🔑 Core Features
 - Automated candidate and job discovery.
@@ -273,22 +274,6 @@ To create an intelligent, automated matchmaking system that:
 
 This PRD provides a clear roadmap and detailed guide for successfully developing your AI-driven hiring platform, informed by best practices from OpenAI's guidelines on building agents and the agent patterns provided in the [OpenAI Agents SDK repository](https://github.com/openai/openai-agents-python/tree/main/examples/agent_patterns).
 
-
-
-# Product Requirements Document (PRD)
-
-## 📌 Overview
-The AI-driven Hiring Platform automates and optimizes candidate and job matching by leveraging LangGraph-powered AI agents, semantic extraction, and browser automation tools. The platform streamlines hiring by eliminating manual search tasks, significantly enhancing efficiency and accuracy for recruiters and job seekers.
-
-## 🎯 Product Vision
-To create an intelligent, autonomous hiring workflow that:
-- Automates candidate and job discovery.
-- Utilizes semantic understanding and agent memory.
-- Matches candidates with roles using explainable, real-time LLM decisioning.
-- Continuously improves with feedback and observability.
-
----
-
 ## 🧠 Why LangGraph + Agentic Pattern Selection
 LangGraph introduces a powerful agentic architecture using stateful, multi-step agents and node-to-node transitions. This is better suited than linear pipelines or simple tool agents for our use case.
 
@@ -300,7 +285,7 @@ LangGraph introduces a powerful agentic architecture using stateful, multi-step 
 
 ### ✅ Why LangGraph DAG + Memory Pattern
 - Enables graph-based workflows for phase transitions (e.g., candidate → match → outreach).
-- Built-in support for memory (each recruiter’s preferences or candidate history).
+- Built-in support for memory (each recruiter's preferences or candidate history).
 - Natural support for guardrails, retries, and conditional logic.
 - Each node can be an agent, tool, or evaluator (perfect for modular, extensible design).
 
@@ -395,4 +380,50 @@ LangGraph introduces a powerful agentic architecture using stateful, multi-step 
 ---
 
 This updated PRD integrates real-time scraping and reasoning via ReAct, LangGraph memory, and `browser-use`. Each phase is now adaptive to human intent, modular in execution, and efficient in resource use — enabling a truly autonomous hiring workflow.
+
+## ReAct-Style Parallel Multi-Site Agent
+
+The system implements a modern ReAct-style agent for candidate discovery that follows this process:
+
+1. **Parse Intent**: Analyzes the user's natural language query to determine the job title, location, skills, and other requirements.
+
+2. **Plan Actions**: Strategically plans which websites to search (LinkedIn, Wellfound, GitHub, etc.) based on the job requirements.
+
+3. **Execute Parallel Searches**: Searches each website in sequence, extracting profiles that match the criteria.
+
+4. **Validate Profiles**: Analyzes the extracted profiles, determines their match quality, and decides if more searching is needed.
+
+5. **Loop or Complete**: The agent loops back to search more sites if needed, or finalizes when enough quality profiles are found.
+
+The agent uses LangGraph with conditional edges to implement this decision-making flow:
+
+```python
+def should_continue_searching(state: DiscoveryState) -> str:
+    """Conditional routing function to determine if we should search more websites."""
+    if state.should_search_more:
+        return "search_candidates"
+    return "end"
+
+# Add conditional edges for looping
+graph.add_conditional_edges(
+    "validate_profiles",
+    should_continue_searching,
+    {
+        "search_candidates": "search_candidates",
+        "end": END
+    }
+)
+```
+
+To use this agent, send a request to the `/api/v1/discovery/search` endpoint with a natural language query:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/discovery/search?query=Find%20senior%20Python%20engineers%20in%20San%20Francisco%20with%20experience%20in%20machine%20learning"
+```
+
+The agent will:
+1. Parse this into structured search parameters
+2. Plan which websites to search
+3. Extract and validate profiles
+4. Return the best matches
 

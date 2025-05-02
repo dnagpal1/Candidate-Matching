@@ -14,6 +14,7 @@ class CandidateBase(BaseModel):
     skills: List[str] = Field(default_factory=list)
     open_to_work: bool = False
     profile_url: Optional[HttpUrl] = None
+    source: str = "linkedin"  # Source platform where the profile was found (linkedin, wellfound, github)
 
 
 class CandidateCreate(CandidateBase):
@@ -30,6 +31,7 @@ class CandidateUpdate(BaseModel):
     skills: Optional[List[str]] = None
     open_to_work: Optional[bool] = None
     profile_url: Optional[HttpUrl] = None
+    source: Optional[str] = None
 
 
 class CandidateInDB(CandidateBase):
@@ -54,5 +56,6 @@ class CandidateSearchParams(BaseModel):
     company: Optional[str] = None
     skills: Optional[List[str]] = None
     is_open_to_work: Optional[bool] = None
+    source: Optional[str] = None  # Filter by source platform
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0) 
